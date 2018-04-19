@@ -862,6 +862,14 @@ vpColVector vpServo::computeError()
   return error ;
 }
 
+void vpServo::setError(vpColVector pid_error)
+{
+  unsigned int dimError = error .getRows();
+  for (unsigned int k = 0; k <  dimError; ++k) {
+        error[k] = pid_error[k];
+      }
+}
+
 bool vpServo::testInitialization()
 {
   switch (servoType)
@@ -1008,6 +1016,137 @@ vpColVector vpServo::computeControlLaw()
 
     computeInteractionMatrix() ;
     computeError() ;
+
+    // compute  task Jacobian
+    if(iscJcIdentity)
+      J1 = L*cVa*aJe ;
+    else
+      J1 = L*cJc*cVa*aJe ;
+
+    // handle the eye-in-hand eye-to-hand case
+    J1 *= signInteractionMatrix ;
+
+    // pseudo inverse of the task Jacobian
+    // and rank of the task Jacobian
+    // the image of J1 is also computed to allows the computation
+    // of the projection operator
+    vpMatrix imJ1t, imJ1 ;
+    bool imageComputed = false ;
+
+    if (inversionType==PSEUDO_INVERSE)
+    {
+      rankJ1 = J1.pseudoInverse(J1p, sv, 1e-6, imJ1, imJ1t) ;
+
+      imageComputed = true ;
+    }
+    else
+      J1p = J1.t() ;
+
+    if (rankJ1 == J1.getCols())
+    {
+      /* if no degrees of freedom remains (rank J1 = ndof)
+       WpW = I, multiply by WpW is useless
+    */
+      e1 = J1p*error ;// primary task
+
+      WpW.eye(J1.getCols(), J1.getCols()) ;
+    }
+    else
+    {
+      if (imageComputed!=true)
+      {
+        vpMatrix Jtmp ;
+        // image of J1 is computed to allows the computation
+        // of the projection operator
+        rankJ1 = J1.pseudoInverse(Jtmp, sv, 1e-6, imJ1, imJ1t) ;
+      }
+      WpW = imJ1t*imJ1t.t() ;
+
+#ifdef DEBUG
+      std::cout << "rank J1: " << rankJ1 << std::endl;
+      imJ1t.print(std::cout, 10, "imJ1t");
+      imJ1.print(std::cout, 10, "imJ1");
+
+      WpW.print(std::cout, 10, "WpW");
+      J1.print(std::cout, 10, "J1");
+      J1p.print(std::cout, 10, "J1p");
+#endif
+      e1 = WpW*J1p*error ;
+    }
+    e = - lambda(e1) * e1 ;
+
+    vpMatrix I ;
+
+    I.eye(J1.getCols(),J1.getCols()) ;
+
+    computeProjectionOperators();
+
+  }
+  catch(...) {
+    throw;
+  }
+
+  iteration++ ;
+  return e ;
+}
+
+vpColVector vpServo::computeControlLaw_pid()
+{
+  static int iteration =0;
+
+  try
+  {
+    vpVelocityTwistMatrix cVa ; // Twist transformation matrix
+    vpMatrix aJe ;      // Jacobian
+
+    if (iteration==0)
+    {
+      if (testInitialization() == false) {
+        vpERROR_TRACE("All the matrices are not correctly initialized") ;
+        throw(vpServoException(vpServoException::servoError,
+                               "Cannot compute control law "
+                               "All the matrices are not correctly"
+                               "initialized")) ;
+      }
+    }
+    if (testUpdated() == false) {
+      vpERROR_TRACE("All the matrices are not correctly updated") ;
+    }
+
+    // test if all the required initialization have been done
+    switch (servoType)
+    {
+    case NONE :
+      vpERROR_TRACE("No control law have been yet defined") ;
+      throw(vpServoException(vpServoException::servoError,
+                             "No control law have been yet defined")) ;
+      break ;
+    case EYEINHAND_CAMERA:
+    case EYEINHAND_L_cVe_eJe:
+    case EYETOHAND_L_cVe_eJe:
+
+      cVa = cVe ;
+      aJe = eJe ;
+
+      init_cVe = false ;
+      init_eJe = false ;
+      break ;
+    case  EYETOHAND_L_cVf_fVe_eJe:
+      cVa = cVf*fVe ;
+      aJe = eJe ;
+      init_fVe = false ;
+      init_eJe = false ;
+      break ;
+    case EYETOHAND_L_cVf_fJe    :
+      cVa = cVf ;
+      aJe = fJe ;
+      init_fJe = false ;
+      break ;
+    }
+
+    computeInteractionMatrix() ;
+    //computeError() ;
+    // setError();
 
     // compute  task Jacobian
     if(iscJcIdentity)

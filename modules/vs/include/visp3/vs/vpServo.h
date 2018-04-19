@@ -246,6 +246,7 @@ public:
 
   // compute the desired control law
   vpColVector computeControlLaw() ;
+  vpColVector computeControlLaw_pid();
   // compute the desired control law
   vpColVector computeControlLaw(double t) ;
   vpColVector computeControlLaw(double t, const vpColVector &e_dot_init);
@@ -317,6 +318,7 @@ public:
 
   vpMatrix getWpW() const;
 
+  void setError(vpColVector pid_error);
   /*!
     Return the velocity twist matrix used to transform a velocity skew vector from end-effector frame into the camera frame.
   */
